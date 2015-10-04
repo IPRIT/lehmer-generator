@@ -9,6 +9,10 @@ namespace Lab1
 {
     class CBasicRandomValue
     {
+        public static int NUMBER_OF_CACHE_POOLS = 0;
+        public const int MAX_NUMBER_OF_CACHE_POOLS = 4;
+        private bool poolExistence = false;
+
         protected long X0;
         protected long m; //281 474 976 710 656 
         protected long a;
@@ -27,20 +31,28 @@ namespace Lab1
             this.T = T;
             Xk = X0;
             curIndexState = 0;
+            if (NUMBER_OF_CACHE_POOLS < MAX_NUMBER_OF_CACHE_POOLS)
+            {
+                NUMBER_OF_CACHE_POOLS++;
+                pool = new long[POOL_LIMIT_SIZE];
+                poolExistence = true;
+            }
         }
 
         public CBasicRandomValue(CLinearCongruentGenerator source)
         {
-            try {
-                X0 = source.StartState;
-                m = source.Modulo;
-                a = source.A;
-                c = source.C;
-                T = source.Period;
-                Xk = X0;
-                curIndexState = 0;
-            } catch (Exception err) {
-                Console.WriteLine(err.Message);
+            X0 = source.StartState;
+            m = source.Modulo;
+            a = source.A;
+            c = source.C;
+            T = source.Period;
+            Xk = X0;
+            curIndexState = 0;
+            if (NUMBER_OF_CACHE_POOLS < MAX_NUMBER_OF_CACHE_POOLS)
+            {
+                NUMBER_OF_CACHE_POOLS++;
+                pool = new long[POOL_LIMIT_SIZE];
+                poolExistence = true;
             }
         }
 
@@ -48,7 +60,10 @@ namespace Lab1
         {
             if (capacity() <= 0)
                 throw new Exception("Capacity has reached the limit.");
-            Xk = (multWithModulo(a, Xk, m) + c % m) % m;
+            if (poolExistence)
+                Xk = (multWithModuloOptimized(a, Xk) + c % m) % m;
+            else
+                Xk = (multWithModulo(a, Xk, m) + c % m) % m;
             ++curIndexState;
             return Xk / (double)m;
         }
@@ -65,26 +80,6 @@ namespace Lab1
 
         protected long gcd(long a, long b) => b == 0 ? a : gcd(b, a % b);
 
-        public long computeT()
-        {
-            System.Diagnostics.Stopwatch myStopwatch = new System.Diagnostics.Stopwatch();
-            myStopwatch.Start();
-
-            long T = 0;
-            long Xk = (multWithModulo(a, X0, m) + c % m) % m;
-            while (Xk != X0)
-            {
-                Xk = (multWithModulo(a, Xk, m) + c % m) % m;
-                ++T;
-                if (T % (1 << 20) == 0)
-                {
-                    Console.WriteLine($"[{myStopwatch.Elapsed}]: {T}");
-                }
-            }
-            myStopwatch.Stop();
-            return T;
-        }
-
         protected long multWithModulo(long a, long b, long m)
         {
             if (b == 0 || a == 0)
@@ -93,7 +88,72 @@ namespace Lab1
                 return a;
             if ((b & 1) != 0)
                 return (multWithModulo(a, b - 1, m) % m + a % m) % m;
-            return ((multWithModulo(a, b / 2, m) % m) * 2) % m;
+            return ((multWithModulo(a, b >> 1, m) % m) << 1) % m;
+        }
+
+        const int POOL_LIMIT_SIZE = 6 * (int)1e6;
+        long[] pool;
+        int keysSaved = 0;
+
+        /*
+         * Оптимизированная реализация multWithModulo. Работает быстрее в 2.3904 раза.
+         * Кэширует не более POOL_LIMIT_SIZE значений.
+         */
+        protected long multWithModuloOptimized(long a, long b)
+        {
+            if (pool == null)
+                throw new Exception("Pool should be an allocated array.");
+            if (b == 0 || a == 0)
+                return 0;
+            if (b == 1)
+                return a;
+
+            if (b < POOL_LIMIT_SIZE && pool[b] != 0)
+                return pool[b];
+
+            if ((b & 1) != 0)
+            {
+                long resultMult;
+                if (b - 1 < POOL_LIMIT_SIZE && pool[b - 1] != 0)
+                    resultMult = pool[b - 1];
+                else
+                {
+                    resultMult = multWithModuloOptimized(a, b - 1);
+                    if (keysSaved < POOL_LIMIT_SIZE && b - 1 < POOL_LIMIT_SIZE)
+                    {
+                        keysSaved++;
+                        pool[b - 1] = resultMult;
+                    }
+                }
+                
+                long result1 = (resultMult + a % m) % m;
+                if (b < POOL_LIMIT_SIZE && keysSaved < POOL_LIMIT_SIZE)
+                {
+                    keysSaved++;
+                    pool[b] = result1;
+                }
+                return result1;
+            }
+            long resultMult2;
+            long bb = b >> 1;
+            if (bb < POOL_LIMIT_SIZE && pool[bb] != 0)
+                resultMult2 = pool[bb];
+            else
+            {
+                resultMult2 = multWithModuloOptimized(a, bb);
+                if (keysSaved < POOL_LIMIT_SIZE && bb < POOL_LIMIT_SIZE)
+                {
+                    keysSaved++;
+                    pool[bb] = resultMult2;
+                }
+            }
+            long result2 = (resultMult2 << 1) % m;
+            if (b < POOL_LIMIT_SIZE && keysSaved < POOL_LIMIT_SIZE)
+            {
+                keysSaved++;
+                pool[b] = result2;
+            }
+            return result2;
         }
 
         protected long powWithModulo(long a, long b, long m)
@@ -115,6 +175,26 @@ namespace Lab1
             Xk = (powWithModulo(a, k, m) * Xk % m) % m;
             curIndexState += k;
             return Xk / (double)m;
+        }
+
+        public long computeT()
+        {
+            System.Diagnostics.Stopwatch myStopwatch = new System.Diagnostics.Stopwatch();
+            myStopwatch.Start();
+
+            long T = 0;
+            long Xk = (multWithModulo(a, X0, m) + c % m) % m;
+            while (Xk != X0)
+            {
+                Xk = (multWithModulo(a, Xk, m) + c % m) % m;
+                ++T;
+                if (T % (1 << 20) == 0)
+                {
+                    Console.WriteLine($"[{myStopwatch.Elapsed}]: {T}");
+                }
+            }
+            myStopwatch.Stop();
+            return T;
         }
 
         int readyAsyncResults,
@@ -317,6 +397,9 @@ namespace Lab1
 
         List<long> computedPrimes = new List<long>();
 
+        /*
+         * @description Получение простых чисел < m.
+         */
         private List<long> getPrimes(long m)
         {
             if (computedPrimes.Count != 0)
