@@ -12,7 +12,7 @@ for (int i = 0; i < 100000; ++i)
     basicGenerator.next();
 ```
 
-#### You can also create random variables using a factory, which divides produced sequence of numbers into several parts.
+#### You can also create random variables using a factory, which divides produced sequence of numbers into several parts and gives a better result.
 
 ```c#
 int seed = 1234;
