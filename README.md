@@ -1,4 +1,4 @@
-# Lehmer Pseudorandom Number Generator (CRAY)
+# Lehmer Pseudorandom Number Generator CRAY
 
 The current generator named as *CRAY* allows to generate numbers included in the interval from 0 to 1 with period 2^46 and binary modulo exponentiation and multiplication.
 The selected values for the Lehmer generator:
